@@ -87,6 +87,17 @@ module Wreckem
     end
 
     ##
+    # Return all entities
+    #
+    # An entity owns no row of its own -- it is just an id components point
+    # at -- so the distinct set of eids is the entity set.  Selecting only
+    # eid keeps this (and EntityManager#size, which is built on it) off the
+    # component-hydrating path.
+    def entities
+      @components.select(:eid).distinct.map { |row| Entity.new_protected(row[:eid]) }
+    end
+
+    ##
     # Generate a new id.  Note this is not part of transaction because worst
     # case we give out some unused ids
     def generate_id
@@ -173,12 +184,18 @@ module Wreckem
     end
 
     ##
-    # Load entity of id
+    # Load entity of id, or nil when nothing in the store refers to it.
     #
+    # Answering the FIXME this replaced: yes, we really do query.  Handing
+    # back an entity for an id that was never used made `find` unusable as
+    # an existence check and made every "entity no longer has X" assertion
+    # pass against an empty database.  #empty? asks the db for one row and
+    # stops, so existence costs a row probe rather than a hydration.
     def load_entity(entity_id)
       return nil unless entity_id
+      return nil if @components.where(:eid => entity_id).empty?
 
-      Entity.new_protected(entity_id)  # FIXME: should we really query on this?
+      Entity.new_protected(entity_id)
     end
 
     def load_entities_for_component_class(component_class, &block)
