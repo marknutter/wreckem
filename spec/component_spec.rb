@@ -5,6 +5,8 @@ Shape = Wreckem::Component.define_as_string
 FooRef = Wreckem::Component.define_as_ref
 
 describe Wreckem::Component do
+  # Run every example below against each storage backend; see spec_helper.rb.
+  for_each_backend do
   before { @em = Wreckem::EntityManager.new }
   after { @em.destroy }
 
@@ -155,5 +157,6 @@ describe Wreckem::Component do
     pos.update!(5)
     pos2 = Position.one(entity)
     pos2.value.should == 5
+  end
   end
 end

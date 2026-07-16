@@ -15,6 +15,8 @@ Alive     = Wreckem::Component.define
 Armed     = Wreckem::Component.define
 
 describe Wreckem::EntityManager do
+  # Run every example below against each storage backend; see spec_helper.rb.
+  for_each_backend do
   before { @em = Wreckem::EntityManager.new }
   after { @em.destroy }
 
@@ -204,5 +206,6 @@ describe Wreckem::EntityManager do
       expect(found).not_to be_nil
       expect(found.id).to eq(needle.id)
     end
+  end
   end
 end

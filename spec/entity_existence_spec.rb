@@ -23,6 +23,8 @@ Weapon    = Wreckem::Component.define_as_string
 Corpse    = Wreckem::Component.define
 
 describe "Wreckem::Entity.find existence" do
+  # Run every example below against each storage backend; see spec_helper.rb.
+  for_each_backend do
   before { @em = Wreckem::EntityManager.new }
   after { @em.destroy }
 
@@ -214,5 +216,6 @@ describe "Wreckem::Entity.find existence" do
       expect(Wreckem::Entity.find(mob.id)).to be_nil
       expect(@em.size).to eq(0)
     end
+  end
   end
 end
