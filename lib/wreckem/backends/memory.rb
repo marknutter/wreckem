@@ -154,11 +154,35 @@ module Wreckem
       new
     end
 
-    ##
-    # The whole store marshals cleanly because rows hold only primitives, class
-    # *names*, and type symbols -- never a live component or class object.
     def save
       File.open("db", "wb") { |f| f.write Marshal.dump(self) }
+    end
+
+    ##
+    # Serialize only the rows, and rebuild the indexes on load. Marshalling the
+    # live object graph instead tripped a JRuby back-reference bug: the class
+    # name lives in a row's :name, in an @ids_by_class key, and across the Set
+    # values, and that shared string got mis-resolved on load -- a row's :name
+    # came back as the whole @rows hash. Rows are the source of truth; the
+    # indexes are derived, so persisting only rows is both smaller and immune to
+    # a stale index. The dup keeps each name a distinct object in the dump.
+    def marshal_dump
+      {
+        rows: @rows.values.map { |r| [r[:id], r[:eid], r[:name].dup, r[:type], r[:value]] },
+        entity_id: @entity_id,
+        component_id: @component_id
+      }
+    end
+
+    def marshal_load(data)
+      initialize
+      @entity_id = data[:entity_id]
+      @component_id = data[:component_id]
+      data[:rows].each do |id, eid, name, type, value|
+        @rows[id] = { id: id, eid: eid, name: name, type: type, value: value }
+        (@ids_by_eid[eid] ||= Set.new) << id
+        (@ids_by_class[name] ||= Set.new) << id
+      end
     end
 
     ##
