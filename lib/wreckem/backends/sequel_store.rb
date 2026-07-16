@@ -32,11 +32,19 @@ module Wreckem
     }
 
 
+    ##
+    # Connects to db_string, creating the schema only if it is not already
+    # there. An existing database is reused, so a world survives a restart --
+    # which is what the empty save/restore below assume: SQL is durable for
+    # free, unlike the memory backend which has to marshal itself to disk.
+    #
+    # This used to drop both tables on every connect, added while the schema
+    # was churning during an intersects rewrite (b250c76). That made the
+    # table_exists? guards below unreachable and quietly cost the engine the
+    # one thing a SQL backend is for. Use #destroy for explicit teardown.
     def initialize(db_string="jdbc:sqlite:db")
       @db = Sequel.connect(db_string)
 #      @db.logger = @@logger
-      @db.drop_table :sequence if @db.table_exists?(:sequence)
-      @db.drop_table :components if @db.table_exists?(:components)
       unless @db.table_exists?(:sequence)
         @db.create_table(:sequence) do
           primary_key :id
