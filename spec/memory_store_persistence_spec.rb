@@ -12,6 +12,7 @@ require 'tmpdir'
 
 SvName = Wreckem::Component.define_as_string
 SvHp   = Wreckem::Component.define_as_int
+SvRef  = Wreckem::Component.define_as_ref
 SvTag  = Wreckem::Component.define   # content-less aspect
 
 describe "Wreckem::MemoryStore save / restore round-trip" do
@@ -73,33 +74,66 @@ describe "Wreckem::MemoryStore save / restore round-trip" do
     expect(Wreckem::Entity.find(0)).to be_nil
   end
 
-  # KNOWN BUG (reported, not fixed): MemoryStore#save + .restore corrupts a
-  # world containing MORE THAN ONE entity.  After restore, reading the
-  # components of any entity beyond the first raises
+  # Regression guard for the multi-entity save/restore corruption fixed in
+  # 4c5b279.  Before the fix, a JRuby Marshal back-reference on the class-name
+  # string shared across @rows/@ids_by_class corrupted every row past the
+  # first, so restoring a world with >1 entity raised
   #   NoMethodError: undefined method 'split' for an instance of Hash
-  # from name_to_class (memory.rb:243) -- hydrate hands a Hash where a
-  # component class-name string is expected.  A single-entity world (above)
-  # restores fine, and multi-entity worlds work perfectly WITHOUT a
-  # save/restore cycle, so the defect is specific to the marshal/restore path.
-  # SequelStore is unaffected (durable storage, #save is a no-op).
-  #
-  # `pending` runs the example and expects it to fail: the suite stays green
-  # while documenting the defect, and RSpec will flip this to a hard failure
-  # the moment the bug is fixed, prompting removal of the pending marker.
-  it "persists a MULTI-entity world and restores every entity" do
-    pending("MemoryStore.restore corrupts multi-entity worlds (Hash reaches name_to_class) -- see test-run report")
-
+  # from name_to_class.  A single-entity round-trip (above) did NOT catch it,
+  # so this test deliberately builds a MULTI-entity world with mixed component
+  # types (int, string, ref, and a content-less aspect) and asserts every
+  # entity survives the round-trip intact.  SequelStore is durable, so this is
+  # a property of the in-memory backend alone -- but it runs identically here.
+  it "persists a MULTI-entity world with mixed component types and restores every entity" do
     em = Wreckem::EntityManager.new(Wreckem::MemoryStore.new)
 
-    goblin = Wreckem::Entity.is! { |e| e.has SvName.new("goblin"); e.has SvHp.new(9) }
-    orc    = Wreckem::Entity.is! { |e| e.has SvName.new("orc");    e.has SvHp.new(14) }
+    goblin = Wreckem::Entity.is! do |e|
+      e.has SvName.new("goblin")
+      e.has SvHp.new(9)
+      e.is  SvTag                     # aspect on the FIRST entity
+    end
+    orc = Wreckem::Entity.is! do |e|
+      e.has SvName.new("orc")
+      e.has SvHp.new(14)
+    end
+    rat = Wreckem::Entity.is! { |e| e.has SvName.new("rat") }   # single component
+
+    link = Wreckem::Entity.is! do |e|
+      e.has SvName.new("familiar")
+      e.has SvRef.new(goblin.id)      # ref component pointing at the goblin
+    end
+
+    expect(em.size).to eq(4)
 
     em.save
     em2 = Wreckem::EntityManager.new(Wreckem::MemoryStore.restore)
 
-    expect(em2.size).to eq(2)
-    expect(SvName.one(Wreckem::Entity.find(goblin.id)).value).to eq("goblin")
-    expect(SvName.one(Wreckem::Entity.find(orc.id)).value).to eq("orc")
-    expect(SvHp.one(Wreckem::Entity.find(orc.id)).value).to eq(14)
+    # Whole-world survival.
+    expect(em2.size).to eq(4)
+    expect(em2.to_a.map(&:id).sort).to eq([goblin.id, orc.id, rat.id, link.id].sort)
+
+    # Every entity's components read back -- the entities *past the first* are
+    # exactly what the corruption used to destroy.
+    g = Wreckem::Entity.find(goblin.id)
+    expect(SvName.one(g).value).to eq("goblin")
+    expect(SvHp.one(g).value).to eq(9)
+    expect(g.is?(SvTag)).to eq(true)
+
+    o = Wreckem::Entity.find(orc.id)
+    expect(SvName.one(o).value).to eq("orc")
+    expect(SvHp.one(o).value).to eq(14)
+    expect(o.is?(SvTag)).to eq(false)   # aspect must NOT bleed across entities
+
+    r = Wreckem::Entity.find(rat.id)
+    expect(SvName.one(r).value).to eq("rat")
+    expect(r.components.size).to eq(1)
+
+    l = Wreckem::Entity.find(link.id)
+    expect(SvName.one(l).value).to eq("familiar")
+    expect(SvRef.one(l).value).to eq(goblin.id)
+    expect(SvRef.one(l).to_entity).to eq(goblin)
+
+    # An id that never existed is still nil after a restore.
+    expect(Wreckem::Entity.find(999_999)).to be_nil
   end
 end
