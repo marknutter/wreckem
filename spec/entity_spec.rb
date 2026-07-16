@@ -5,6 +5,8 @@ Container = Wreckem::Component.define
 Wound = Wreckem::Component.define_as_int
 
 describe Wreckem::Entity do
+  # Run every example below against each storage backend; see spec_helper.rb.
+  for_each_backend do
   before { @em = Wreckem::EntityManager.new }
   after { @em.destroy }
 
@@ -129,5 +131,6 @@ describe Wreckem::Entity do
     entity.delete
 
     entity.many(Wound).to_a.size.should == 0
+  end
   end
 end
